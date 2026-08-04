@@ -1,0 +1,33 @@
+## Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+## Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+*.suo
+[Dd]ebug/
+[Rr]elease/
+
+## Test results
+[Tt]est[Rr]esult*/
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.cobertura.xml
+
+## NuGet
+packages/
+*.nupkg
+
+## Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

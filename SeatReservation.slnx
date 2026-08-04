@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SeatReservation.Api/SeatReservation.Api.csproj" />
+    <Project Path="src/SeatReservation.Application/SeatReservation.Application.csproj" />
+    <Project Path="src/SeatReservation.Domain/SeatReservation.Domain.csproj" />
+    <Project Path="src/SeatReservation.Infrastructure/SeatReservation.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SeatReservation.IntegrationTests/SeatReservation.IntegrationTests.csproj" />
+    <Project Path="tests/SeatReservation.UnitTests/SeatReservation.UnitTests.csproj" />
+  </Folder>
+</Solution>
