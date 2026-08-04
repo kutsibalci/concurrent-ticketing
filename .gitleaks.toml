@@ -1,0 +1,29 @@
+title = "seat-reservation-api"
+
+# Start from gitleaks' full default rule set and narrow from there, rather than
+# replacing it — an allowlist that switches rules off is how the next real key gets
+# through.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+The JWT signing key used by the integration tests.
+
+It is a literal on purpose: the test host has to be handed a key that satisfies the
+32-character startup validation, and generating one per run would mean tokens minted in
+one test could not be read in another. The value never leaves the test process, is not
+accepted by any deployed environment, and the application itself refuses to start without
+a key supplied through configuration.
+
+Scoped to the one file and the one string. Anything else with this shape still fails CI.
+"""
+paths = ['''tests/SeatReservation\.IntegrationTests/Infrastructure/PostgresApiFactory\.cs''']
+regexes = ['''integration-test-signing-key-at-least-32-chars''']
+
+[[allowlists]]
+description = """
+Placeholders in .env.example. The file exists to document which variables are required;
+every value in it is the string a reader is meant to replace.
+"""
+paths = ['''\.env\.example''']
