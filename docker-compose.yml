@@ -28,13 +28,36 @@ services:
       timeout: 3s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD tanimli degil, .env olusturun}
+    ports:
+      # Management UI only, bound to loopback. The AMQP port stays on the compose network.
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      # Only the mnesia directory, not the whole of /var/lib/rabbitmq. Mounting the parent
+      # hides the .erlang.cookie the image ships and the container fails to start with
+      # "Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces".
+      - rabbitmq_data:/var/lib/rabbitmq/mnesia
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
   api:
     build:
       context: .
       dockerfile: src/SeatReservation.Api/Dockerfile
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      # Configurable: 8080 is a popular port and a fixed one collides with whatever else
+      # the machine happens to be running.
+      - "127.0.0.1:${API_PORT:-8080}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
       ConnectionStrings__Postgres: >-
@@ -42,17 +65,49 @@ services:
       ConnectionStrings__Redis: redis:6379
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?JWT_SIGNING_KEY tanimli degil, .env olusturun}
       Reservation__HoldDuration: ${HOLD_DURATION:-00:10:00}
+      RabbitMq__Enabled: "true"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/SeatReservation.Worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Postgres: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB:-seatreservation};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD}
+      # The worker issues no tokens; the value only satisfies the shared startup validation.
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      RabbitMq__Enabled: "true"
+      RabbitMq__Host: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_USER:-guest}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      # Waits for the API so the schema exists before the consumer touches it: migrations
+      # run on API startup, and two processes racing to apply them is not worth the risk.
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  rabbitmq_data:

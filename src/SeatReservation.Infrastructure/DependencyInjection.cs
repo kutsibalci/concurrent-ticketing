@@ -5,6 +5,7 @@ using SeatReservation.Application.Abstractions;
 using SeatReservation.Application.Options;
 using SeatReservation.Application.Services;
 using SeatReservation.Infrastructure.Caching;
+using SeatReservation.Infrastructure.Messaging;
 using SeatReservation.Infrastructure.Persistence;
 using SeatReservation.Infrastructure.Security;
 
@@ -26,6 +27,16 @@ public static class DependencyInjection
         services.AddOptions<ReservationOptions>()
             .Bind(configuration.GetSection(ReservationOptions.SectionName))
             .Validate(o => o.HoldDuration > TimeSpan.Zero, "Reservation:HoldDuration must be positive.")
+            .ValidateOnStart();
+
+        services.AddOptions<OutboxOptions>()
+            .Bind(configuration.GetSection(OutboxOptions.SectionName))
+            .Validate(o => o.BatchSize > 0, "Outbox:BatchSize must be positive.")
+            .Validate(o => o.MaxAttempts > 0, "Outbox:MaxAttempts must be positive.")
+            .ValidateOnStart();
+
+        services.AddOptions<RabbitMqOptions>()
+            .Bind(configuration.GetSection(RabbitMqOptions.SectionName))
             .ValidateOnStart();
 
         services.AddDbContext<ApplicationDbContext>(options =>
@@ -57,9 +68,23 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddScoped<ISeatAvailabilityCache, DistributedSeatAvailabilityCache>();
 
+        var rabbit = configuration.GetSection(RabbitMqOptions.SectionName).Get<RabbitMqOptions>() ?? new RabbitMqOptions();
+        if (rabbit.Enabled && !string.IsNullOrWhiteSpace(rabbit.Host))
+        {
+            services.AddSingleton<RabbitMqConnection>();
+            services.AddSingleton<IEventPublisher, RabbitMqEventPublisher>();
+        }
+        else
+        {
+            // The outbox still records everything; the rows simply wait for a broker.
+            // Nothing is lost, and the API runs on a database alone.
+            services.AddSingleton<IEventPublisher, NoOpEventPublisher>();
+        }
+
         services.AddScoped<ReservationService>();
         services.AddScoped<AuthService>();
         services.AddScoped<EventService>();
+        services.AddScoped<OutboxDispatcher>();
 
         return services;
     }

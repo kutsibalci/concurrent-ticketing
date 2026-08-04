@@ -18,6 +18,14 @@ RUN dotnet publish "src/SeatReservation.Api/SeatReservation.Api.csproj" \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
+# The runtime images are minimal and ship neither curl nor wget, so a compose healthcheck
+# written against either silently fails forever — the container reports unhealthy while the
+# application is running perfectly well.
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
 # Runs as a non-root user. The base image ships one; using it means a process
 # compromise does not start with write access to the whole filesystem.
 USER $APP_UID

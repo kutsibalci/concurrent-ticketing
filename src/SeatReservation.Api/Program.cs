@@ -5,6 +5,7 @@ using Microsoft.OpenApi;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using SeatReservation.Api;
 using SeatReservation.Api.BackgroundServices;
 using SeatReservation.Api.Endpoints;
 using SeatReservation.Application.Options;
@@ -48,12 +49,23 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("seat-reservation-api"))
-    .WithTracing(tracing => tracing
-        .AddAspNetCoreInstrumentation()
-        .AddConsoleExporter())
-    .WithMetrics(metrics => metrics
-        .AddAspNetCoreInstrumentation()
-        .AddConsoleExporter());
+    .WithTracing(tracing =>
+    {
+        tracing.AddAspNetCoreInstrumentation();
+
+        // Console exporter in development only. Left on everywhere it writes every trace
+        // and every metric export to stdout, which drowns the application's own logs and
+        // makes the container's output useless for diagnosing anything.
+        if (builder.Environment.IsDevelopment())
+            tracing.AddConsoleExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics.AddAspNetCoreInstrumentation();
+
+        if (builder.Environment.IsDevelopment())
+            metrics.AddConsoleExporter();
+    });
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -87,8 +99,13 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks().AddDbContextCheck<ApplicationDbContext>("database");
 builder.Services.AddHostedService<ExpiredHoldSweeper>();
+builder.Services.AddHostedService<OutboxDispatcherService>();
 
 var app = builder.Build();
+
+// Before the pipeline is built and before any hosted service runs: the sweeper and the
+// outbox dispatcher both query tables that have to exist first.
+await DatabaseInitializer.InitializeAsync(app);
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();

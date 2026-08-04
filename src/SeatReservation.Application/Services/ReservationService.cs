@@ -6,6 +6,7 @@ using SeatReservation.Application.Contracts;
 using SeatReservation.Application.Options;
 using SeatReservation.Domain.Common;
 using SeatReservation.Domain.Entities;
+using SeatReservation.Domain.Events;
 
 namespace SeatReservation.Application.Services;
 
@@ -113,6 +114,27 @@ public sealed class ReservationService
         if (confirmed.IsFailure)
             return Result.Failure<ReservationResponse>(confirmed.Error);
 
+        var @event = await _db.Events.FirstAsync(e => e.Id == reservation.EventId, ct);
+        var email = await _db.Users
+            .Where(u => u.Id == userId)
+            .Select(u => u.Email)
+            .FirstAsync(ct);
+
+        // Queued in the change tracker, not published here. It is saved by the same
+        // SaveChanges as the confirmation below, so the event and the state change are one
+        // atomic write — a publish at this point could succeed for a commit that then fails.
+        _db.OutboxMessages.Add(OutboxWriter.For(
+            new ReservationConfirmedEvent(
+                reservation.Id,
+                reservation.EventId,
+                userId,
+                email,
+                @event.Name,
+                reservation.TotalPrice,
+                reservation.Seats.Select(s => s.Label).OrderBy(l => l).ToList(),
+                now),
+            now));
+
         try
         {
             await _db.SaveChangesAsync(ct);
@@ -124,7 +146,6 @@ public sealed class ReservationService
 
         await _cache.RemoveAsync(ISeatAvailabilityCache.SeatMapKey(reservation.EventId), ct);
 
-        var @event = await _db.Events.FirstAsync(e => e.Id == reservation.EventId, ct);
         return ToResponse(reservation, @event, now);
     }
 
@@ -142,9 +163,18 @@ public sealed class ReservationService
         if (owned.IsFailure)
             return owned;
 
+        var seatLabels = reservation.Seats.Select(s => s.Label).OrderBy(l => l).ToList();
+
         var cancelled = reservation.Cancel(now);
         if (cancelled.IsFailure)
             return cancelled;
+
+        var email = await _db.Users.Where(u => u.Id == userId).Select(u => u.Email).FirstAsync(ct);
+
+        _db.OutboxMessages.Add(OutboxWriter.For(
+            new ReservationCancelledEvent(
+                reservation.Id, reservation.EventId, userId, email, seatLabels, now),
+            now));
 
         await _db.SaveChangesAsync(ct);
         await _cache.RemoveAsync(ISeatAvailabilityCache.SeatMapKey(reservation.EventId), ct);
@@ -204,8 +234,30 @@ public sealed class ReservationService
         if (lapsed.Count == 0)
             return 0;
 
+        // Emails fetched in one query rather than per reservation — a sweep can cover
+        // hundreds of rows and this is the difference between one round trip and hundreds.
+        var userIds = lapsed.Select(r => r.UserId).Distinct().ToList();
+        var emails = await _db.Users
+            .Where(u => userIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.Email, ct);
+
         foreach (var reservation in lapsed)
-            reservation.Expire(now);
+        {
+            var seatLabels = reservation.Seats.Select(s => s.Label).OrderBy(l => l).ToList();
+
+            if (reservation.Expire(now).IsFailure)
+                continue;
+
+            _db.OutboxMessages.Add(OutboxWriter.For(
+                new ReservationExpiredEvent(
+                    reservation.Id,
+                    reservation.EventId,
+                    reservation.UserId,
+                    emails.GetValueOrDefault(reservation.UserId, string.Empty),
+                    seatLabels,
+                    now),
+                now));
+        }
 
         await _db.SaveChangesAsync(ct);
 

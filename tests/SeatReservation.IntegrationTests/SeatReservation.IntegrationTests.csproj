@@ -17,6 +17,7 @@
     <!-- xunit v3 rather than v2: its IAsyncLifetime is ValueTask-based, which lines up
          with WebApplicationFactory's IAsyncDisposable. Under v2 the two DisposeAsync
          signatures collide and the fixture cannot implement both. -->
+    <PackageReference Include="Testcontainers.RabbitMq" Version="4.13.0" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -32,6 +33,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The API only. Referencing the worker as well pulls in a second top-level Program
+         class, and WebApplicationFactory<Program> then cannot tell which host to build.
+         NotificationHandler lives in Application for the same reason it is testable at
+         all: it is a use case, and the worker is only what hosts it. -->
     <ProjectReference Include="..\..\src\SeatReservation.Api\SeatReservation.Api.csproj" />
   </ItemGroup>
 

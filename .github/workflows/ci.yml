@@ -37,10 +37,10 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # The integration tests start PostgreSQL through Testcontainers, which uses the
-      # Docker daemon the runner already provides. No service container is declared here
-      # on purpose: the tests own their database lifecycle, so they behave the same on a
-      # laptop as they do in CI.
+      # The integration tests start PostgreSQL and RabbitMQ through Testcontainers, using
+      # the Docker daemon the runner already provides. No service containers are declared
+      # here on purpose: the tests own their dependencies' lifecycle, so they behave the
+      # same on a laptop as they do in CI.
       - name: Test
         run: >
           dotnet test
@@ -67,6 +67,9 @@ jobs:
 
       - name: Build API image
         run: docker build -f src/SeatReservation.Api/Dockerfile -t seat-reservation-api .
+
+      - name: Build worker image
+        run: docker build -f src/SeatReservation.Worker/Dockerfile -t seat-reservation-worker .
 
       - name: Compose config is valid
         run: |

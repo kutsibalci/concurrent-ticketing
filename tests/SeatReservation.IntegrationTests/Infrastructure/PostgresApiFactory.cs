@@ -58,14 +58,31 @@ public sealed class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncL
             .UseNpgsql(_postgres.GetConnectionString())
             .Options);
 
-    /// <summary>Wipes every table between tests so one test's rows cannot decide another's outcome.</summary>
+    /// <summary>
+    /// Wipes every table between tests so one test's rows cannot decide another's outcome.
+    ///
+    /// Listing tables by hand means a new table is silently missed — which is exactly what
+    /// happened when the outbox was added, and it surfaced as unrelated tests failing on
+    /// rows an earlier one had left behind. Read from the model instead, so a table added
+    /// later is truncated without anyone having to remember this method exists.
+    /// </summary>
     public async Task ResetDatabaseAsync()
     {
         await using var db = CreateDbContext();
+
+        var tables = db.Model.GetEntityTypes()
+            .Select(e => e.GetTableName())
+            .Where(name => name is not null)
+            .Distinct()
+            .Select(name => $"\"{name}\"");
+
+        // EF1002 warns about interpolation into raw SQL. A table name cannot be a
+        // parameter, and these come from the compiled model's metadata rather than from
+        // anything a caller supplies, so there is no input here to inject through.
+#pragma warning disable EF1002
         await db.Database.ExecuteSqlRawAsync(
-            """
-            TRUNCATE TABLE refresh_tokens, reservations, seats, events, users RESTART IDENTITY CASCADE;
-            """);
+            $"TRUNCATE TABLE {string.Join(", ", tables)} RESTART IDENTITY CASCADE;");
+#pragma warning restore EF1002
     }
 }
 

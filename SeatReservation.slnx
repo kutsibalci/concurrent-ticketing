@@ -4,6 +4,7 @@
     <Project Path="src/SeatReservation.Application/SeatReservation.Application.csproj" />
     <Project Path="src/SeatReservation.Domain/SeatReservation.Domain.csproj" />
     <Project Path="src/SeatReservation.Infrastructure/SeatReservation.Infrastructure.csproj" />
+    <Project Path="src/SeatReservation.Worker/SeatReservation.Worker.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/SeatReservation.IntegrationTests/SeatReservation.IntegrationTests.csproj" />

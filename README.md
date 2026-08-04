@@ -9,9 +9,10 @@
   <a href="https://github.com/kutsibalci/seat-reservation-api/actions/workflows/ci.yml">
     <img src="https://github.com/kutsibalci/seat-reservation-api/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
-  <img src="https://img.shields.io/badge/tests-65-brightgreen?style=flat-square" />
+  <img src="https://img.shields.io/badge/tests-84-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" />
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" />
+  <img src="https://img.shields.io/badge/RabbitMQ-3.13-FF6600?style=flat-square&logo=rabbitmq&logoColor=white" />
   <img src="https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
@@ -96,16 +97,59 @@ A background `ExpiredHoldSweeper` reclaims lapsed holds every minute. It is a cl
 not the rule: `Confirm` checks the deadline against the clock itself, so a sweeper that
 is late — or dead — cannot let an expired hold through.
 
+## The second race: telling anyone about it
+
+Confirming a reservation writes to PostgreSQL and publishes to RabbitMQ, and there is no
+transaction across both.
+
+- Publish first, and the broker may hold an event for a database write that then fails.
+- Publish after the commit, and the process can die in between — the event is gone with
+  no trace that it ever should have existed.
+
+Either way the two systems disagree and nothing in the data says so. The **outbox pattern**
+removes the gap: the event is written as a row in the same transaction as the reservation,
+so both land or neither does.
+
+```
+POST /confirm ──┐
+                ├── one transaction ──► reservations UPDATE
+                └────────────────────► outbox_messages INSERT
+                                              │
+              OutboxDispatcher (every 5s) ────┘
+                        │
+                        └──► RabbitMQ ──► worker ──► notification
+```
+
+A separate dispatcher moves rows to the broker. That turns *exactly once* — which is not
+available — into *at least once*, which is, and the consumer absorbs the difference by
+being idempotent: a `processed_messages` row keyed on the message id, inserted in the same
+transaction as the work, so a duplicate delivery violates the primary key instead of
+sending a second e-mail.
+
+Two details worth pointing at:
+
+**`FOR UPDATE SKIP LOCKED`** is what lets a second dispatcher be started. `FOR UPDATE`
+alone would make it wait behind the first, turning horizontal scale into a queue;
+`SKIP LOCKED` tells PostgreSQL to pass over rows another transaction holds, so each
+dispatcher claims a disjoint batch. `Es_zamanli_gondericiler_ayni_mesaji_iki_kez_yayinlamaz`
+runs four of them over forty messages and asserts forty distinct publishes.
+
+**A failed publish is not a lost event.** The row stays unprocessed, the attempt count goes
+up, and the retry is scheduled with exponential backoff. After the limit it is marked dead
+and left in the table — deleting it would destroy the only record that something never
+reached anyone.
+
 ## Architecture
 
 ```
-SeatReservation.Domain          Entities and rules. No EF Core, no ASP.NET, no I/O.
+SeatReservation.Domain          Entities, rules, event contracts. No EF Core, no ASP.NET, no I/O.
         ↑
 SeatReservation.Application     Use cases against interfaces (IApplicationDbContext,
-        ↑                       ITokenService, ISeatAvailabilityCache)
-SeatReservation.Infrastructure  EF Core + Npgsql, JWT, PBKDF2, Redis
+        ↑                       ITokenService, ISeatAvailabilityCache, IEventPublisher)
+SeatReservation.Infrastructure  EF Core + Npgsql, JWT, PBKDF2, Redis, RabbitMQ
         ↑
-SeatReservation.Api             Minimal API endpoints, auth, OpenAPI, the sweeper
+SeatReservation.Api             Minimal API, auth, OpenAPI, hold sweeper, outbox dispatcher
+SeatReservation.Worker          Consumes events and sends notifications
 ```
 
 Dependencies point inward. `Seat.Hold()` and `Reservation.Confirm()` are pure methods
@@ -142,7 +186,18 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Swagger UI on <http://127.0.0.1:8080/swagger>, health on `/health`.
+Swagger UI on <http://127.0.0.1:8080/swagger>, health on `/health`, RabbitMQ management on
+<http://127.0.0.1:15672>. Change `API_PORT` in `.env` if something already holds 8080.
+
+Migrations are applied at startup, and in Development one event with a 70-seat map is
+seeded — so `GET /api/events` has something in it on the first run.
+
+Confirm a reservation and the worker's log shows the notification a few seconds later — the
+delay is the dispatcher's poll interval, which is the visible cost of not publishing inline:
+
+```
+worker-1  | BILDIRIM -> ben@ornek.test: 'Final Maçı' icin 2 koltuk onaylandi (A1, A2), toplam 1.000,00 TL.
+```
 
 <details>
 <summary>End-to-end with curl</summary>
@@ -182,27 +237,40 @@ curl -s -X POST $API/api/reservations \
 ## Tests
 
 ```bash
-dotnet test          # 65 tests; integration tests need a running Docker daemon
+dotnet test          # 84 tests; integration tests need a running Docker daemon
 ```
 
 | Suite | Count | Needs |
 |---|---|---|
 | `SeatReservation.UnitTests` | 42 | nothing — pure domain |
-| `SeatReservation.IntegrationTests` | 23 | Docker (Testcontainers starts PostgreSQL 16) |
+| `SeatReservation.IntegrationTests` | 42 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
 
 Beyond the concurrency cases, the integration suite covers refresh-token rotation
 invalidating the old token, passwords and refresh tokens never appearing in clear text in
 the database, a stranger being refused another user's reservation, role enforcement on
 admin routes, and the seat map not going stale after a reservation.
 
+The outbox is tested against a publisher the test controls — that is the right tool for
+driving retry, backoff and dead-lettering deliberately — plus one round trip through a
+real broker, because a fake proves nothing about whether the exchange, the binding and the
+message properties are actually right.
+
 ## Notes
 
 The parts worth reading are `ReservationService.CreateAsync` for the conflict path,
-`SeatConfiguration` for the `xmin` mapping, and `ConcurrencyTests` for the proof.
+`SeatConfiguration` for the `xmin` mapping, `ApplicationDbContext.ClaimDueOutboxMessagesAsync`
+for `SKIP LOCKED`, and `ConcurrencyTests` and `OutboxTests` for the proof.
 
-Two things this deliberately does not do: it takes no payment (`Confirm` stands in for a
-payment callback), and it has no seat-selection UI. Both would add surface without
-adding anything to the problem the project is about.
+RabbitMQ is driven through `RabbitMQ.Client` rather than a framework on top of it. The
+mechanics — publisher confirms, manual acknowledgement, prefetch, a dead-letter exchange —
+are the interesting part here, and hiding them behind conventions would defeat the point of
+building it.
+
+Three things this deliberately does not do: it takes no payment (`Confirm` stands in for a
+payment callback), it has no seat-selection UI, and the worker logs notifications rather
+than sending mail. Each would add an integration without adding anything to the two
+problems the project is actually about — selling a seat once, and telling someone about it
+exactly once.
 
 ---
 
