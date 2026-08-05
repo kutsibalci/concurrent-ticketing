@@ -16,6 +16,28 @@ public sealed class ReservationOptions
     public TimeSpan SeatMapCacheTtl { get; set; } = TimeSpan.FromSeconds(30);
 }
 
+/// <summary>
+/// Limits on the credential endpoints. Configurable rather than hard-coded because the
+/// right number depends on where the API sits: behind a NAT one address is a whole office,
+/// and in a test suite twenty deliberate logins in a second are the point of the test.
+/// </summary>
+public sealed class RateLimitOptions
+{
+    public const string SectionName = "RateLimiting";
+
+    /// <summary>Requests allowed per window, per client address.</summary>
+    public int PermitLimit { get; set; } = 10;
+
+    public TimeSpan Window { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// Slices the window so the limit slides instead of resetting on a boundary. With a
+    /// fixed window a caller can spend the whole allowance at the end of one window and the
+    /// whole allowance at the start of the next, landing twice the limit back to back.
+    /// </summary>
+    public int SegmentsPerWindow { get; set; } = 6;
+}
+
 public sealed class JwtOptions
 {
     public const string SectionName = "Jwt";

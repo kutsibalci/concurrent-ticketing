@@ -9,7 +9,7 @@
   <a href="https://github.com/kutsibalci/concurrent-ticketing/actions/workflows/ci.yml">
     <img src="https://github.com/kutsibalci/concurrent-ticketing/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
-  <img src="https://img.shields.io/badge/tests-102-brightgreen?style=flat-square" />
+  <img src="https://img.shields.io/badge/tests-107-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" />
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/RabbitMQ-3.13-FF6600?style=flat-square&logo=rabbitmq&logoColor=white" />
@@ -153,7 +153,7 @@ SeatReservation.Worker          Consumes events and sends notifications
 ```
 
 Dependencies point inward. `Seat.Hold()` and `Reservation.Confirm()` are pure methods
-over in-memory objects, which is why 51 of the 102 tests need no database at all and run
+over in-memory objects, which is why 51 of the 107 tests need no database at all and run
 in under a second.
 
 `TimeProvider` is injected rather than `DateTimeOffset.UtcNow` being called directly, so a
@@ -170,6 +170,7 @@ test can place itself one second either side of a deadline instead of sleeping.
 | Clock skew | 30 seconds, not the 5-minute default, which would extend a 15-minute access token by a third. |
 | Ownership | Every reservation endpoint compares the record's owner against the `NameIdentifier` claim. An id is not authorization. |
 | User enumeration | Login answers identically for an unknown address and a wrong password, and hashes anyway when the user does not exist so the two paths take comparable time. |
+| Guessing | `/api/auth` is rate limited per client address, on a sliding window so an allowance cannot be spent twice across a boundary. It counts requests rather than failures — finding the password on the third try does not buy an unlimited fourth. Locking the account instead would let anyone lock anyone out by failing to log in as them. |
 | Exposure | Neither PostgreSQL nor Redis publishes a port. The API listens on `127.0.0.1` only. |
 | Containers | The API image runs as a non-root user and the SDK never reaches the runtime layer. |
 | Dependencies | CI fails on any package with a known advisory, including transitive ones, and gitleaks scans the full history. |
@@ -237,13 +238,13 @@ curl -s -X POST $API/api/reservations \
 ## Tests
 
 ```bash
-dotnet test          # 102 tests; integration tests need a running Docker daemon
+dotnet test          # 107 tests; integration tests need a running Docker daemon
 ```
 
 | Suite | Count | Needs |
 |---|---|---|
 | `SeatReservation.UnitTests` | 51 | nothing — pure domain |
-| `SeatReservation.IntegrationTests` | 51 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
+| `SeatReservation.IntegrationTests` | 56 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
 
 Beyond the concurrency cases, the integration suite covers refresh-token rotation
 invalidating the old token, passwords and refresh tokens never appearing in clear text in

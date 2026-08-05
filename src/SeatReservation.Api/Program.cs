@@ -1,5 +1,9 @@
+using System.Globalization;
 using System.Text;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using OpenTelemetry.Metrics;
@@ -7,6 +11,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using SeatReservation.Api;
 using SeatReservation.Api.BackgroundServices;
+using SeatReservation.Api.Common;
 using SeatReservation.Api.Endpoints;
 using SeatReservation.Application.Options;
 using SeatReservation.Infrastructure;
@@ -101,6 +106,65 @@ builder.Services.AddSwaggerGen(options =>
 // decorative and a three-character password reaches the domain unchallenged.
 builder.Services.AddValidation();
 
+var rateLimits = builder.Configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>()
+                 ?? new RateLimitOptions();
+
+// Guessing a password costs an attacker one request, and nothing above made that request
+// any more expensive than a legitimate one -- so /login was a free oracle: unlimited
+// attempts, against every account, for as long as anyone cared to keep going.
+//
+// This does not make guessing impossible. A botnet spreads across addresses and pays the
+// limit once per address. It makes it slow, which against an online attack is most of the
+// defence. Locking the account instead would trade a guessing problem for a denial-of-
+// service one: anyone could lock anyone out by failing to log in as them.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy(RateLimitPolicies.Credentials, httpContext =>
+        RateLimitPartition.GetSlidingWindowLimiter(
+            // Partitioned on the caller's address. Behind a proxy that is the proxy unless
+            // forwarded headers are configured, and trusting `X-Forwarded-For` without
+            // knowing the proxy would let a caller choose its own partition -- so it is
+            // deliberately not read here.
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new SlidingWindowRateLimiterOptions
+            {
+                PermitLimit = rateLimits.PermitLimit,
+                Window = rateLimits.Window,
+                SegmentsPerWindow = rateLimits.SegmentsPerWindow,
+                // Reject rather than queue: a caller past the limit should be told so now,
+                // not held open on a connection until a slot frees.
+                QueueLimit = 0
+            }));
+
+    options.OnRejected = async (context, ct) =>
+    {
+        // The sliding window limiter does not publish RetryAfter metadata, so the header is
+        // computed here -- checking the lease first, in case a future limiter does supply
+        // it. A permit returns when the oldest segment leaves the window, which is one
+        // segment away at the earliest, so that is what a caller is told: a floor, not a
+        // promise. Retrying on it and being refused again costs one rejected request; being
+        // told nothing at all is what makes clients retry immediately and in a loop.
+        var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var fromLease)
+            ? fromLease
+            : rateLimits.Window / Math.Max(1, rateLimits.SegmentsPerWindow);
+
+        context.HttpContext.Response.Headers.RetryAfter =
+            ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+
+        // Written through the overload that takes a content type: WriteAsJsonAsync sets
+        // application/json by itself and would overwrite anything assigned beforehand,
+        // leaving a problem document that does not announce itself as one.
+        await context.HttpContext.Response.WriteAsJsonAsync(new ProblemDetails
+        {
+            Status = StatusCodes.Status429TooManyRequests,
+            Title = "Too many requests.",
+            Detail = "Too many attempts from this address. Wait and try again."
+        }, options: null, contentType: "application/problem+json", cancellationToken: ct);
+    };
+});
+
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks().AddDbContextCheck<ApplicationDbContext>("database");
 builder.Services.AddHostedService<ExpiredHoldSweeper>();
@@ -115,6 +179,10 @@ await DatabaseInitializer.InitializeAsync(app);
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseSerilogRequestLogging();
+
+// Ahead of authentication: rejecting a flood should not first cost a token validation, and
+// the endpoints being protected are the ones reached without a token in the first place.
+app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())
 {

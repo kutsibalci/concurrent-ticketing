@@ -36,6 +36,13 @@ public sealed class PostgresApiFactory : WebApplicationFactory<Program>, IAsyncL
         builder.UseSetting("Reservation:HoldDuration", "00:10:00");
         // Long enough that the sweeper never fires mid-test; expiry is exercised directly.
         builder.UseSetting("Reservation:SweepInterval", "01:00:00");
+
+        // The rate limiter partitions on the caller's address, and every test here arrives
+        // from the same one -- so the production limit of ten a minute would be spent by
+        // the third test and every later registration would come back 429. Raised out of
+        // the way, and the limit itself is proven in RateLimitTests against a host
+        // configured with a low one.
+        builder.UseSetting("RateLimiting:PermitLimit", "10000");
     }
 
     public async ValueTask InitializeAsync()

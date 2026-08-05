@@ -9,7 +9,12 @@ public static class AuthEndpoints
 {
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/auth").WithTags("Auth");
+        // The whole group is limited, not only /login. Registration is how an attacker
+        // finds out which addresses already have accounts, and /refresh takes a bearer
+        // credential that is worth guessing at for the same reason a password is.
+        var group = app.MapGroup("/api/auth")
+            .WithTags("Auth")
+            .RequireRateLimiting(RateLimitPolicies.Credentials);
 
         group.MapPost("/register", async (
                 [FromBody] RegisterRequest request, AuthService auth, CancellationToken ct) =>
