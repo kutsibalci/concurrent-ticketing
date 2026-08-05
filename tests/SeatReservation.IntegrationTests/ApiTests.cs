@@ -273,9 +273,9 @@ public sealed class ApiTests : IAsyncLifetime
         await client.ReserveAsync(eventId, seatIds[0], seatIds[1]);
 
         var events = (await _factory.CreateClient()
-            .GetFromJsonAsync<List<EventSummaryResponse>>("/api/events"))!;
+            .GetFromJsonAsync<PagedResponse<EventSummaryResponse>>("/api/events"))!;
 
-        var summary = events.Single(e => e.Id == eventId);
+        var summary = events.Items.Single(e => e.Id == eventId);
         Assert.Equal(5, summary.TotalSeats);
         Assert.Equal(3, summary.AvailableSeats);
     }

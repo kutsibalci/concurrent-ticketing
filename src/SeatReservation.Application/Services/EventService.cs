@@ -22,10 +22,31 @@ public sealed class EventService
         _options = options.Value;
     }
 
-    public async Task<IReadOnlyList<EventSummaryResponse>> ListAsync(CancellationToken ct = default)
-        => await _db.Events
-            .AsNoTracking()
-            .OrderBy(e => e.StartsAt)
+    public async Task<PagedResponse<EventSummaryResponse>> ListAsync(
+        PageRequest request, CancellationToken ct = default)
+    {
+        // Clamped here as well as validated at the endpoint. Validation is what answers a
+        // caller with a 400; this is what still holds if the method is called from anywhere
+        // that is not an HTTP request, which is the case a ceiling exists for.
+        var size = Math.Clamp(request.SizeOrDefault, 1, PageRequest.MaxSize);
+        var page = Math.Max(1, request.PageOrDefault);
+
+        var query = _db.Events.AsNoTracking();
+
+        // Counted before paging, so a client can tell an empty page from an empty catalogue
+        // without having to ask twice.
+        var totalCount = await query.CountAsync(ct);
+
+        var items = await query
+            // ThenBy(Id) is not decoration. Two events starting at the same moment have no
+            // defined order between them, and OFFSET/LIMIT asks the database for a slice of
+            // an ordering it is free to pick differently on the next query -- so the same
+            // row can arrive on page one and again on page two, or on neither. A unique
+            // tiebreaker makes the ordering total, and a total ordering is what makes
+            // paging through it safe.
+            .OrderBy(e => e.StartsAt).ThenBy(e => e.Id)
+            .Skip((page - 1) * size)
+            .Take(size)
             .Select(e => new EventSummaryResponse(
                 e.Id,
                 e.Name,
@@ -37,6 +58,9 @@ public sealed class EventService
                 // difference between one aggregate and thousands of rows per event.
                 e.Seats.Count(s => s.Status == SeatStatus.Available)))
             .ToListAsync(ct);
+
+        return new PagedResponse<EventSummaryResponse>(items, page, size, totalCount);
+    }
 
     public async Task<Result<SeatMapResponse>> GetSeatMapAsync(Guid eventId, CancellationToken ct = default)
     {

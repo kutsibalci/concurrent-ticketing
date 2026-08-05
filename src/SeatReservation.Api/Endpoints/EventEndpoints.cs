@@ -14,11 +14,14 @@ public static class EventEndpoints
 
         // The catalogue and seat map are public: a customer must be able to look before
         // signing in. Everything that changes state below requires a token.
-        group.MapGet("/", async (EventService events, CancellationToken ct) =>
-                TypedResults.Ok(await events.ListAsync(ct)))
+        group.MapGet("/", async (
+                [AsParameters] PageRequest page, EventService events, CancellationToken ct) =>
+                TypedResults.Ok(await events.ListAsync(page, ct)))
             .AllowAnonymous()
-            .WithSummary("Lists events with a live count of available seats.")
-            .Produces<IReadOnlyList<EventSummaryResponse>>();
+            .WithSummary(
+                $"Lists events with a live count of available seats. Paged: ?page=1&size={PageRequest.DefaultSize}, "
+                + $"at most {PageRequest.MaxSize} per request.")
+            .Produces<PagedResponse<EventSummaryResponse>>();
 
         group.MapGet("/{eventId:guid}/seats", async (
                 Guid eventId, EventService events, CancellationToken ct) =>

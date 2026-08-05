@@ -9,7 +9,7 @@
   <a href="https://github.com/kutsibalci/concurrent-ticketing/actions/workflows/ci.yml">
     <img src="https://github.com/kutsibalci/concurrent-ticketing/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
-  <img src="https://img.shields.io/badge/tests-107-brightgreen?style=flat-square" />
+  <img src="https://img.shields.io/badge/tests-119-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" />
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/RabbitMQ-3.13-FF6600?style=flat-square&logo=rabbitmq&logoColor=white" />
@@ -153,7 +153,7 @@ SeatReservation.Worker          Consumes events and sends notifications
 ```
 
 Dependencies point inward. `Seat.Hold()` and `Reservation.Confirm()` are pure methods
-over in-memory objects, which is why 51 of the 107 tests need no database at all and run
+over in-memory objects, which is why 51 of the 119 tests need no database at all and run
 in under a second.
 
 `TimeProvider` is injected rather than `DateTimeOffset.UtcNow` being called directly, so a
@@ -211,7 +211,7 @@ TOKEN=$(curl -s -X POST $API/api/auth/register \
   -d '{"email":"ben@ornek.test","password":"GucluSifre123!","displayName":"Ben"}' \
   | jq -r .accessToken)
 
-EVENT=$(curl -s $API/api/events | jq -r '.[0].id')
+EVENT=$(curl -s $API/api/events | jq -r '.items[0].id')
 SEAT=$(curl -s $API/api/events/$EVENT/seats | jq -r '.seats[] | select(.status=="Available") | .id' | head -1)
 
 curl -s -X POST $API/api/reservations \
@@ -224,10 +224,10 @@ curl -s -X POST $API/api/reservations \
 
 | Method | Route | Auth | |
 |---|---|---|---|
-| `POST` | `/api/auth/register` | — | Account + token pair |
-| `POST` | `/api/auth/login` | — | Token pair |
-| `POST` | `/api/auth/refresh` | — | Rotates the refresh token |
-| `GET` | `/api/events` | — | Catalogue with live availability |
+| `POST` | `/api/auth/register` | — | Account + token pair. Rate limited |
+| `POST` | `/api/auth/login` | — | Token pair. Rate limited |
+| `POST` | `/api/auth/refresh` | — | Rotates the refresh token. Rate limited |
+| `GET` | `/api/events` | — | Catalogue with live availability. Paged: `?page=1&size=20`, 100 max |
 | `GET` | `/api/events/{id}/seats` | — | Seat map (cached, evicted on every write) |
 | `POST` | `/api/events` | Admin | Create an event and its seat blocks |
 | `POST` | `/api/reservations` | Customer | **Hold seats — 409 on a lost race** |
@@ -238,13 +238,13 @@ curl -s -X POST $API/api/reservations \
 ## Tests
 
 ```bash
-dotnet test          # 107 tests; integration tests need a running Docker daemon
+dotnet test          # 119 tests; integration tests need a running Docker daemon
 ```
 
 | Suite | Count | Needs |
 |---|---|---|
 | `SeatReservation.UnitTests` | 51 | nothing — pure domain |
-| `SeatReservation.IntegrationTests` | 56 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
+| `SeatReservation.IntegrationTests` | 68 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
 
 Beyond the concurrency cases, the integration suite covers refresh-token rotation
 invalidating the old token, passwords and refresh tokens never appearing in clear text in

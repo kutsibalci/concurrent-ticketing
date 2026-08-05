@@ -25,6 +25,60 @@ public sealed record AuthResponse(
     string RefreshToken,
     DateTimeOffset AccessTokenExpiresAt);
 
+// ---------------------------------------------------------------- pagination
+
+/// <summary>
+/// Query parameters for a paged list. The ceiling is on the type rather than left to each
+/// endpoint, so a new list cannot be added without one.
+/// </summary>
+public sealed record PageRequest
+{
+    /// <summary>
+    /// The most rows one request may ask for. Without a ceiling, <c>?size=1000000</c> is a
+    /// request to read the whole table into memory and serialise it, which is a denial of
+    /// service anyone can send.
+    /// </summary>
+    public const int MaxSize = 100;
+
+    public const int DefaultSize = 20;
+
+    // Nullable, and the defaults live below rather than in property initialisers.
+    //
+    // [AsParameters] binding does not run initialisers: it constructs the type and assigns
+    // each property from the query string, so an absent `page` arrives as default(int) --
+    // zero -- and not as the 1 an initialiser would have set. With a non-nullable int and
+    // [Range(1, ...)] that made a request with no query string at all fail validation, which
+    // is every existing caller of this endpoint.
+    //
+    // Nullable separates "not supplied" from "supplied as zero". RangeAttribute passes null
+    // through untouched, so an omitted value takes the default while an explicit ?page=0 is
+    // still a 400.
+    [Range(1, int.MaxValue)]
+    public int? Page { get; init; }
+
+    [Range(1, MaxSize)]
+    public int? Size { get; init; }
+
+    public int PageOrDefault => Page ?? 1;
+
+    public int SizeOrDefault => Size ?? DefaultSize;
+}
+
+/// <summary>
+/// A page of results and enough context to ask for the next one. <see cref="TotalCount"/> is
+/// the count before paging, so a client can tell "no more pages" from "no more matches".
+/// </summary>
+public sealed record PagedResponse<T>(
+    IReadOnlyList<T> Items,
+    int Page,
+    int Size,
+    int TotalCount)
+{
+    public int TotalPages => Size <= 0 ? 0 : (int)Math.Ceiling(TotalCount / (double)Size);
+
+    public bool HasNextPage => Page < TotalPages;
+}
+
 // -------------------------------------------------------------------- events
 
 public sealed record EventSummaryResponse(
