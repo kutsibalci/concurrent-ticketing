@@ -1,13 +1,13 @@
-<h1 align="center">Seat Reservation API</h1>
+<h1 align="center">Concurrent Ticketing</h1>
 
 <p align="center">
-  A ticketing API built around one question:<br>
+  A seat reservation API built around one question:<br>
   <b>what stops the same seat from being sold twice?</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/kutsibalci/seat-reservation-api/actions/workflows/ci.yml">
-    <img src="https://github.com/kutsibalci/seat-reservation-api/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <a href="https://github.com/kutsibalci/concurrent-ticketing/actions/workflows/ci.yml">
+    <img src="https://github.com/kutsibalci/concurrent-ticketing/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
   <img src="https://img.shields.io/badge/tests-102-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" />
@@ -177,8 +177,8 @@ test can place itself one second either side of a deadline instead of sleeping.
 ## Running it
 
 ```bash
-git clone https://github.com/kutsibalci/seat-reservation-api.git
-cd seat-reservation-api
+git clone https://github.com/kutsibalci/concurrent-ticketing.git
+cd concurrent-ticketing
 
 cp .env.example .env
 # set POSTGRES_PASSWORD and JWT_SIGNING_KEY  (openssl rand -base64 48)
