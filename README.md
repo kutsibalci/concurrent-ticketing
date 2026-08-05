@@ -9,7 +9,7 @@
   <a href="https://github.com/kutsibalci/seat-reservation-api/actions/workflows/ci.yml">
     <img src="https://github.com/kutsibalci/seat-reservation-api/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
-  <img src="https://img.shields.io/badge/tests-84-brightgreen?style=flat-square" />
+  <img src="https://img.shields.io/badge/tests-102-brightgreen?style=flat-square" />
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white" />
   <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white" />
   <img src="https://img.shields.io/badge/RabbitMQ-3.13-FF6600?style=flat-square&logo=rabbitmq&logoColor=white" />
@@ -153,7 +153,7 @@ SeatReservation.Worker          Consumes events and sends notifications
 ```
 
 Dependencies point inward. `Seat.Hold()` and `Reservation.Confirm()` are pure methods
-over in-memory objects, which is why 42 of the 65 tests need no database at all and run
+over in-memory objects, which is why 51 of the 102 tests need no database at all and run
 in under a second.
 
 `TimeProvider` is injected rather than `DateTimeOffset.UtcNow` being called directly, so a
@@ -237,13 +237,13 @@ curl -s -X POST $API/api/reservations \
 ## Tests
 
 ```bash
-dotnet test          # 84 tests; integration tests need a running Docker daemon
+dotnet test          # 102 tests; integration tests need a running Docker daemon
 ```
 
 | Suite | Count | Needs |
 |---|---|---|
-| `SeatReservation.UnitTests` | 42 | nothing — pure domain |
-| `SeatReservation.IntegrationTests` | 42 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
+| `SeatReservation.UnitTests` | 51 | nothing — pure domain |
+| `SeatReservation.IntegrationTests` | 51 | Docker (Testcontainers starts PostgreSQL 16 and RabbitMQ 3.13) |
 
 Beyond the concurrency cases, the integration suite covers refresh-token rotation
 invalidating the old token, passwords and refresh tokens never appearing in clear text in

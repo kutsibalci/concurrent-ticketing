@@ -172,3 +172,54 @@ public class PasswordHasherTests
         Assert.False(_hasher.Verify("herhangi", stored));
     }
 }
+
+public class UserTests
+{
+    private const string Hash = "pbkdf2-sha256$210000$c2FsdA==$aGFzaA==";
+
+    [Fact]
+    public void Gecerli_kullanici_olusur()
+    {
+        var user = User.Create("Ornek@Test.COM ", Hash, " Kutsi ");
+
+        // Email is lower-cased and trimmed because the unique index is on the stored value.
+        Assert.Equal("ornek@test.com", user.Email);
+        Assert.Equal("Kutsi", user.DisplayName);
+        Assert.Equal(Roles.Customer, user.Role);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void DisplayName_bos_olamaz(string? displayName)
+    {
+        // This was an unguarded displayName.Trim(): null went in and a
+        // NullReferenceException came out, which the API surfaced as 500. A missing field
+        // is the caller's mistake, and the domain should say so rather than dereference it.
+        // ThrowsAny, not Throws: xUnit matches the exact type, and null arrives as
+        // ArgumentNullException while blank arrives as ArgumentException.
+        Assert.ThrowsAny<ArgumentException>(() => User.Create("a@b.test", Hash, displayName!));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Email_bos_olamaz(string? email)
+    {
+        // ThrowsAny, not Throws: xUnit matches the exact type, and null arrives as
+        // ArgumentNullException while blank arrives as ArgumentException.
+        Assert.ThrowsAny<ArgumentException>(() => User.Create(email!, Hash, "Kutsi"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void PasswordHash_bos_olamaz(string? hash)
+    {
+        // ThrowsAny, not Throws: xUnit matches the exact type, and null arrives as
+        // ArgumentNullException while blank arrives as ArgumentException.
+        Assert.ThrowsAny<ArgumentException>(() => User.Create("a@b.test", hash!, "Kutsi"));
+    }
+}

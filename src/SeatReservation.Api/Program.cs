@@ -96,6 +96,11 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// The request contracts carry [Required], [EmailAddress], [MinLength] and friends, but
+// minimal APIs do not act on them by themselves -- without this call every annotation is
+// decorative and a three-character password reaches the domain unchallenged.
+builder.Services.AddValidation();
+
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks().AddDbContextCheck<ApplicationDbContext>("database");
 builder.Services.AddHostedService<ExpiredHoldSweeper>();

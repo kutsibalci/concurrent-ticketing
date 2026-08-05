@@ -38,6 +38,9 @@ public sealed class User
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
+        // Guarded like the other two: this used to be an unchecked displayName.Trim(), so a
+        // request that simply omitted the field became a NullReferenceException and a 500.
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
 
         return new User(Guid.NewGuid(), email.Trim().ToLowerInvariant(), passwordHash, displayName.Trim(), role);
     }
